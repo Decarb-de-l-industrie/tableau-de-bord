@@ -1625,7 +1625,7 @@
           </div>
         </div>
         <div class="legend legend-pie-row" id="legend-pie">
-          <div class="legend-subtitle" id="tooltip-hover" >ℹ️ Sécurisation de la cible 2035 :
+          <div class="legend-subtitle" id="tooltip-hover" >Sécurisation de la cible 2035 ℹ️ :
             <span class="tooltip-hover-content">
               <math xmlns="http://www.w3.org/1998/Math/MathML">
                 <mfrac>
@@ -3219,18 +3219,18 @@
           else{
             document.getElementById('top10-section').style.display = 'inline';
           }
-          const top30 = getTopNSites(data, 30);
+          const topSites = getTopNSites(data, 60);
           let maxEmissionsTotales;
           let isReduced;
-          if (top30[1] && top30[0].emissionsTotales >= 2*top30[1].emissionsTotales){
-            maxEmissionsTotales = 2*top30[1].emissionsTotales;
+          if (topSites[1] && topSites[0].emissionsTotales >= 2*topSites[1].emissionsTotales){
+            maxEmissionsTotales = 2*topSites[1].emissionsTotales;
             isReduced = true;
           }
           else {
-            maxEmissionsTotales = top30[0].emissionsTotales;
+            maxEmissionsTotales = topSites[0].emissionsTotales;
             isReduced = false;
           }
-          top30.forEach(site => renderSiteRow(site, tbody, maxEmissionsTotales, isReduced));
+          topSites.forEach(site => renderSiteRow(site, tbody, maxEmissionsTotales, isReduced));
         }
                 
 
