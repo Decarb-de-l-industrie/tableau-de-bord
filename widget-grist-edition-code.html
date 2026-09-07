@@ -1617,7 +1617,7 @@
           </div>
           <div class="legend-item">
             <span class="legend-swatch swatch-type2"></span>
-            <span class="legend-text"><b>Certain</b> (Projet confirmé et/ou aide contractualisée FR2030, AO GPID, CEE)</span>
+            <span class="legend-text"><b>Sécurisé</b> (Projet confirmé et/ou aide contractualisée FR2030, AO GPID, CEE)</span>
           </div>
           <div class="legend-item">
             <span class="legend-swatch swatch-type3"></span>
@@ -1629,8 +1629,8 @@
             <span class="tooltip-hover-content">
               <math xmlns="http://www.w3.org/1998/Math/MathML">
                 <mfrac>
-                  <mn>Certain + Réalisé</mn>
-                  <mn>Certain + Réalisé + A sécuriser</mn>
+                  <mn>Sécurisé + Réalisé</mn>
+                  <mn>Sécurisé + Réalisé + A sécuriser</mn>
                 </mfrac>
               </math>
             </span>
@@ -1947,7 +1947,7 @@
           // const em_tot_AvecDecarb = sumList(ges2025AvecDecarb.map((g,i) => g != -1 ? g : (gesCourantAvecDecarb[i] != -1) ? gesCourantAvecDecarb[i] : 0));
           const em_tot_AvecDecarb = sumList(gesCourantAvecDecarb);
           b3.value = em_tot != 0 ? `${nDecimales(em_tot_AvecDecarb/em_tot*100,0)}` : null;
-          b3.label = "émissions des sites faisant l'objet d'un suivi";
+          b3.label = "Emissions avec des projets de décarbonation identifiés";
           b3.unit = '% du total';
 
           const dataAbattement = resultTrajCO2[2];
@@ -2209,8 +2209,6 @@
           }
 
           const regionsFiltree = getFilters().region;
-          let facteurSNBC = baisse_SNBC.SNBC_Nat;
-          let labelSNBC = 'Trajectoire SNBC Nationale';
 
           // On extrait la liste des années présentes dans le dictionnaire, triées par ordre croissant
           const annees = [...new Set(cles.map(k => Number(k.split('|')[0])))].sort((a, b) => a - b);
@@ -2221,24 +2219,54 @@
           const dataEngagement = annees.map(a => dict_donnees_certains[`${a}|Abattement`] ?? null);
           const dataAbattement = annees.map(a => dict_donnees[`${a}|Abattement`] ?? null);
 
-          if (regionsFiltree.length == 1 && regionsFiltree[0] != ''){
-            const mapAnneeFacteur = {};
-            const regionFormat = regionsFiltree[0].replaceAll('-','_').replaceAll(' ','_').replaceAll('é','e').replaceAll('ô','o').replaceAll("'",'_');
-            for (let i = 0 ; i < facteurSNBC.length ; i++){
-              mapAnneeFacteur[baisse_SNBC.Annee[i]] = baisse_SNBC[`SNBC_COP_${regionFormat}`][i] == 0 ? null : baisse_SNBC[`SNBC_COP_${regionFormat}`][i]; 
-            }
-            if (completionParInterpolation(mapAnneeFacteur)){
-              facteurSNBC = completionParInterpolation(mapAnneeFacteur);
-              labelSNBC = `Trajectoire COP ${regionsFiltree[0]}`;
+          const baseEmission = dict_donnees[`${anneeMin}|Emissions`];
+
+          // Trajectoire SNBC Nationale : TOUJOURS affichée, en droite linéaire entre 2019 et 2035
+          const labelSNBC = 'Trajectoire SNBC Nationale';
+          const mapSNBCNat = {};
+          if (baisse_SNBC && Array.isArray(baisse_SNBC.Annee) && Array.isArray(baisse_SNBC.SNBC_Nat)){
+            for (let i = 0 ; i < baisse_SNBC.Annee.length ; i++){
+              mapSNBCNat[baisse_SNBC.Annee[i]] = baisse_SNBC.SNBC_Nat[i];
             }
           }
-          // a <= anneeCourante ? a : anneeCourante
-          const traj_snbc = annees.map((a,i) => dict_donnees[`${anneeMin}|Emissions`]*facteurSNBC[i] ?? null);
+          const facteurSNBCDebut = mapSNBCNat[anneeMin];   // 2019
+          const facteurSNBCFin = mapSNBCNat[anneeMax];     // 2035
+          let traj_snbc;
+          if (facteurSNBCDebut != null && facteurSNBCFin != null){
+            const valSNBCDebut = baseEmission * facteurSNBCDebut;
+            const valSNBCFin = baseEmission * facteurSNBCFin;
+            traj_snbc = annees.map(a => valSNBCDebut + (valSNBCFin - valSNBCDebut) * (a - anneeMin) / (anneeMax - anneeMin));
+          }
+          else {
+            traj_snbc = annees.map(() => null);
+          }
+
+          // Trajectoire COP régionale : affichée EN PLUS quand une seule région est sélectionnée
+          let traj_cop = null;
+          let labelCOP = '';
+          if (regionsFiltree.length == 1 && regionsFiltree[0] != '' && baisse_SNBC && Array.isArray(baisse_SNBC.Annee)){
+            const regionFormat = regionsFiltree[0].replaceAll('-','_').replaceAll(' ','_').replaceAll('é','e').replaceAll('ô','o').replaceAll("'",'_');
+            const colCOP = baisse_SNBC[`SNBC_COP_${regionFormat}`];
+            // Garde : on ne tente le calcul que si la colonne COP est réellement accessible
+            // (sinon, utilisateur avec restrictions d'accès -> colonne absente -> on garde la SNBC seule)
+            if (Array.isArray(colCOP)){
+              const mapAnneeFacteur = {};
+              for (let i = 0 ; i < colCOP.length ; i++){
+                mapAnneeFacteur[baisse_SNBC.Annee[i]] = colCOP[i] == 0 ? null : colCOP[i];
+              }
+              const facteurCOP = completionParInterpolation(mapAnneeFacteur);
+              if (facteurCOP){
+                traj_cop = annees.map((a,i) => (facteurCOP[i] != null && facteurCOP[i] !== undefined) ? baseEmission*facteurCOP[i] : null);
+                labelCOP = `Trajectoire COP ${regionsFiltree[0]}`;
+              }
+            }
+          }
 
           const colorEmissions = '#000000';
           const colorEngagement = window.getComputedStyle(document.head).getPropertyValue('--color-procede-biomasse');
           const colorAbattement = window.getComputedStyle(document.head).getPropertyValue('--color-brand-blue');
           const colorSNBC = window.getComputedStyle(document.head).getPropertyValue('--color-aide-aogpid');
+          const colorCOP = '#ED7D31'; // orange, pour distinguer la trajectoire COP régionale
 
           const datasets = [
             {
@@ -2278,10 +2306,11 @@
             },
             {
               label: labelSNBC,
-              borderDash: [6, 6],
+              borderDash: [2, 3],
               data: traj_snbc,
               borderColor: colorSNBC,
               backgroundColor: colorSNBC,
+              borderWidth: 2,
               fill: false,
               tension: 0.2,
               spanGaps: true,       
@@ -2290,17 +2319,35 @@
             }
           ];
 
+          // Ajout de la trajectoire COP régionale (en plus de la SNBC) si disponible
+          if (traj_cop){
+            datasets.push({
+              label: labelCOP,
+              borderDash: [2, 3],
+              data: traj_cop,
+              borderColor: colorCOP,
+              backgroundColor: colorCOP,
+              borderWidth: 2,
+              fill: false,
+              tension: 0.2,
+              spanGaps: true,
+              pointRadius: 0,
+              order : 4,
+            });
+          }
+
           let dataU = {                                   // Pour l'export Excel
             labels: datasets.map(d => d.label), 
-            data: annees.map((a, i) => ({
-              annee: a,
-              emissions: {
-                [datasets[0].label]: dataEmissions[i],
-                [datasets[1].label]: dataEngagement[i],
-                [datasets[1].label]: dataAbattement[i],
-                [datasets[2].label]: traj_snbc[i],
-              },
-            })),
+            data: annees.map((a, i) => {
+              const emissions = {
+                'Emissions actuelles + variations de production futures': dataEmissions[i],
+                'Emissions avec abattement des projets engagés': dataEngagement[i],
+                'Emissions avec abattement des projets de décarbonation': dataAbattement[i],
+                [labelSNBC]: traj_snbc[i],
+              };
+              if (traj_cop){ emissions[labelCOP] = traj_cop[i]; }
+              return { annee: a, emissions };
+            }),
           };
 
           chartTrajEmissions = new Chart(ctx, {
@@ -2327,6 +2374,7 @@
                         pointStyle: 'line',
                         lineWidth: 3,
                         lineDash: dataset.borderDash || [], 
+                        hidden: !chart.isDatasetVisible(i),
                         datasetIndex: i
                       }));
                     },
@@ -3142,7 +3190,7 @@
                     <div class="bar-compaction-mark" style="left:66%"></div>
                   ` : ''}
                 </div>
-                <div class="num-cell">${nDecimales(site.emissionsTotales/1000000,1)}</div>
+                <div class="num-cell">${formatMtEtiquette(site.emissionsTotales/1000000)}</div>
               </div>
             </td>
             <td>
@@ -3441,7 +3489,7 @@
           const em_2022 = sumList(filtreRecord(record_sites, (r,i) => (r.Perimetre[i] != '' && r.Perimetre[i] != 'Hors ETS')).ges_2022);
           const em_2023 = sumList(filtreRecord(record_sites, (r,i) => (r.Perimetre[i] != '' && r.Perimetre[i] != 'Hors ETS')).ges_2023);
           const em_2024 = sumList(filtreRecord(record_sites, (r,i) => (r.Perimetre[i] != '' && r.Perimetre[i] != 'Hors ETS'))[`ges_${anneeCourante}`]);
-          const emissions = {2019 : em_2019, 2020 : em_2020, 2021 : em_2022, 2022 : em_2022, 2023 : em_2023, 2024 : em_2024};
+          const emissions = {2019 : em_2019, 2020 : em_2020, 2021 : em_2021, 2022 : em_2022, 2023 : em_2023, 2024 : em_2024};
           if(em_2019 == 0){
             document.getElementById('wrapper-traj').style.display = 'none';
             return;
@@ -4231,6 +4279,15 @@
           }) : null;
         }
 
+        // Formate une valeur en Mt : 1 décimale au-delà de 100 kt, 2 décimales en dessous
+        // (évite d'afficher "0,0" pour les sites < 100 kt CO2)
+        function formatMtEtiquette(valeurMt){
+          if (typeof valeurMt != 'number') return null;
+          const absv = Math.abs(valeurMt);
+          const decimales = (absv > 0 && absv < 0.1) ? 2 : 1;
+          return nDecimales(valeurMt, decimales);
+        }
+
         function unitAdaptee(number, unit, n){
           let conversion = number;
           let nouv_unit = unit;
@@ -4424,6 +4481,11 @@
           return filtered_record;
         }
 
+        // Restreint un record d'aides aux lignes dont le Nom_du_site fait partie d'un ensemble de sites retenus
+        function filtreAidesParSites(record_aides, setSites) {
+          return filtreRecord(record_aides, (r, i) => setSites.has(r.Nom_du_site[i]));
+        }
+
         function deepCopyRecord(record) {
           const copy = {};
           for (const key of Object.keys(record)) {
@@ -4465,10 +4527,14 @@
           if (perimetre.length && !perimetre.includes('')) {
             filtered_records_projets = filterTable(filtered_records_projets, 'Perimetre', filters.perimetre);
             filtered_records_sites = filterTable(filtered_records_sites, 'Perimetre', filters.perimetre);
+            // Les aides n'ont pas de colonne Perimetre : on les restreint aux sites retenus
+            filtered_records_aides = filtreAidesParSites(filtered_records_aides, new Set(filtered_records_sites.name_site));
             test_filtre = true;
           }
           if (levier.length && !levier.includes('')) {
             filtered_records_projets = filterTable(filtered_records_projets, 'Procede', filters.levier);
+            // Les aides n'ont pas de colonne Procede : on les restreint aux sites ayant un projet retenu
+            filtered_records_aides = filtreAidesParSites(filtered_records_aides, new Set(filtered_records_projets.Nom_du_site));
           }
           if (filters.search.length >= 3) {
             filtered_records_projets = filterTable(filtered_records_projets, 'Nom_du_site', filters.search);
