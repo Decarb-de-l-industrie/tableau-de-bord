@@ -1947,8 +1947,8 @@
           // const em_tot_AvecDecarb = sumList(ges2025AvecDecarb.map((g,i) => g != -1 ? g : (gesCourantAvecDecarb[i] != -1) ? gesCourantAvecDecarb[i] : 0));
           const em_tot_AvecDecarb = sumList(gesCourantAvecDecarb);
           b3.value = em_tot != 0 ? `${nDecimales(em_tot_AvecDecarb/em_tot*100,0)}` : null;
-          b3.label = "Emissions avec des projets de décarbonation identifiés";
-          b3.unit = '% du total';
+          b3.label = "Sites avec des projets de décarbonation identifiés";
+          b3.unit = '% des émissions totales';
 
           const dataAbattement = resultTrajCO2[2];
           b4.value = nDecimales(((dataAbattement[0]-dataAbattement[dataAbattement.length-1])/dataAbattement[0])*100,0);
