@@ -344,6 +344,55 @@ async function columnExists(col){
   }catch(e){ return false; }
 }
 
+/* Rend des colonnes visibles dans toutes les grilles posées sur la table, y
+   compris une page de données située ailleurs. Passe par les tables internes de
+   Grist (_grist_*) qui régissent l'affichage. Non documenté officiellement et
+   sensible aux versions : tout est protégé, un échec n'empêche pas la création
+   des colonnes elle-même. Renvoie un compte-rendu plutôt que de lever. */
+async function makeColumnsVisible(colIds){
+  try{
+    const tables = await grist.docApi.fetchTable('_grist_Tables');
+    let tableRef = null;
+    for(let i=0;i<(tables.id||[]).length;i++){ if(tables.tableId[i] === TABLE){ tableRef = tables.id[i]; break; } }
+    if(!tableRef) return {ok:false, reason:'table interne introuvable'};
+
+    const cols = await grist.docApi.fetchTable('_grist_Tables_column');
+    const colRef = {};
+    for(let i=0;i<(cols.id||[]).length;i++){
+      if(cols.parentId[i] === tableRef && colIds.indexOf(cols.colId[i]) !== -1) colRef[cols.colId[i]] = cols.id[i];
+    }
+
+    const sections = await grist.docApi.fetchTable('_grist_Views_section');
+    const targets = [];   // sections de type grille (record), hors widget custom
+    for(let i=0;i<(sections.id||[]).length;i++){
+      if(sections.tableRef[i] === tableRef && sections.parentKey[i] === 'record') targets.push(sections.id[i]);
+    }
+    if(!targets.length) return {ok:false, reason:'aucune grille sur cette table'};
+
+    const fields = await grist.docApi.fetchTable('_grist_Views_section_field');
+    const seen = {}; let maxPos = 0;
+    const hasPos = Array.isArray(fields.parentPos);
+    for(let i=0;i<(fields.id||[]).length;i++){
+      seen[fields.parentId[i] + ':' + fields.colRef[i]] = true;
+      if(hasPos && typeof fields.parentPos[i] === 'number' && fields.parentPos[i] > maxPos) maxPos = fields.parentPos[i];
+    }
+
+    const actions = []; let pos = maxPos + 1;
+    targets.forEach(sec=>{
+      colIds.forEach(c=>{
+        const cr = colRef[c];
+        if(cr && !seen[sec + ':' + cr]){
+          actions.push(['AddRecord', '_grist_Views_section_field', null, {parentId: sec, colRef: cr, parentPos: pos++}]);
+        }
+      });
+    });
+    if(actions.length) await applyActions(actions);
+    return {ok:true, added: actions.length, grids: targets.length};
+  }catch(e){
+    return {ok:false, reason: errText(e)};
+  }
+}
+
 async function loadConfig(){
   CFG = {};
   try{
@@ -891,6 +940,7 @@ document.getElementById('cfgSave').addEventListener('click', async ()=>{
     if(actions.length) await applyActions(actions);
     canWrite = true;
     // vérification : les colonnes des nouveaux paramètres existent-elles vraiment ?
+    let visNote = '';
     if(newParams.length){
       let ok = true;
       for(const p of newParams){ if(!(await columnExists(p.posCol))){ ok = false; break; } }
@@ -900,13 +950,20 @@ document.getElementById('cfgSave').addEventListener('click', async ()=>{
         showSetup();
         return;
       }
+      // rendre les nouvelles colonnes visibles dans toutes les grilles de la table
+      const cols = [];
+      newParams.forEach(p=>{ cols.push(p.posCol); if(p.srcCol) cols.push(p.srcCol); if(p.tagCol) cols.push(p.tagCol); });
+      const vis = await makeColumnsVisible(cols);
+      visNote = vis.ok
+        ? ' et affichées dans '+vis.grids+' grille(s)'
+        : ' (colonnes masquées : affichage automatique impossible — '+vis.reason+'. À démasquer à la main dans la grille)';
     }
     // seconde étape : les intitulés lisibles. Un échec ici ne remet pas en cause
     // les colonnes et les camps, déjà écrits.
     try{
       await writeConfig(draft.params, draft.camps, draft.title);
       grStatus(newParams.length
-        ? newParams.length+' paramètre(s) ajouté(s) : colonnes créées dans la table'
+        ? newParams.length+' paramètre(s) ajouté(s) : colonnes créées'+visNote
         : 'Configuration appliquée dans Grist');
     }catch(e2){
       camps = Object.assign({}, draft.camps); title = draft.title;
