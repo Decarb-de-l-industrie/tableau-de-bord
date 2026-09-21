@@ -314,11 +314,34 @@ async function applyActions(actions){
 }
 
 async function detectTable(){
-  try{ TABLE = await grist.selectedTable.getTableId(); }
-  catch(e){
-    try{ TABLE = await grist.getSelectedTableId(); }catch(e2){ TABLE = null; }
+  // L'ajout/suppression de colonnes exige l'identifiant exact de la table.
+  // On l'obtient par la voie documentée, avec plusieurs replis.
+  const tries = [
+    async ()=> (grist.selectedTable && grist.selectedTable.getTableId) ? await grist.selectedTable.getTableId() : null,
+    async ()=> (typeof grist.getSelectedTableId === 'function') ? await grist.getSelectedTableId() : null,
+    async ()=> (typeof grist.getTable === 'function') ? await grist.getTable().getTableId() : null,
+    async ()=> {
+      // dernier recours : options du widget, où Grist range parfois la table liée
+      if(typeof grist.getOptions === 'function'){
+        const o = await grist.getOptions();
+        if(o && (o.tableId || o.tableRef)) return o.tableId || o.tableRef;
+      }
+      return null;
+    }
+  ];
+  for(const t of tries){
+    try{ const id = await t(); if(id){ TABLE = String(id); return TABLE; } }catch(e){}
   }
+  TABLE = null;
   return TABLE;
+}
+
+// Confirme qu'une colonne existe réellement dans la table après écriture.
+async function columnExists(col){
+  try{
+    const t = await grist.docApi.fetchTable(TABLE);
+    return Object.prototype.hasOwnProperty.call(t, col);
+  }catch(e){ return false; }
 }
 
 async function loadConfig(){
@@ -830,7 +853,16 @@ document.getElementById('cfgSave').addEventListener('click', async ()=>{
     });
 
     const actions = [];
-    draft.params.filter(p=>p.isNew).forEach(p=>{
+    const newParams = draft.params.filter(p=>p.isNew);
+    if(newParams.length || draft.removed.length){
+      // ces opérations touchent la structure de la table : l'identifiant est indispensable
+      if(!TABLE) await detectTable();
+      if(!TABLE){
+        throw new Error("table non identifiée — ajoutez le widget SUR la table des positions "
+          + "(bouton « Add widget to page », puis choisissez cette table), et non comme page indépendante");
+      }
+    }
+    newParams.forEach(p=>{
       actions.push(['AddColumn', TABLE, p.posCol, {type:'Choice', label:'Position — '+p.name,
         widgetOptions: JSON.stringify({choices: POSITIONS})}]);
       actions.push(['AddColumn', TABLE, p.srcCol, {type:'Text', label:'Source — '+p.name}]);
@@ -858,11 +890,24 @@ document.getElementById('cfgSave').addEventListener('click', async ()=>{
     }
     if(actions.length) await applyActions(actions);
     canWrite = true;
+    // vérification : les colonnes des nouveaux paramètres existent-elles vraiment ?
+    if(newParams.length){
+      let ok = true;
+      for(const p of newParams){ if(!(await columnExists(p.posCol))){ ok = false; break; } }
+      if(!ok){
+        grStatus("Les colonnes n'ont pas été créées dans la table. Vérifiez « Full document access » "
+          + "dans le panneau de droite, puis réessayez.", true);
+        showSetup();
+        return;
+      }
+    }
     // seconde étape : les intitulés lisibles. Un échec ici ne remet pas en cause
     // les colonnes et les camps, déjà écrits.
     try{
       await writeConfig(draft.params, draft.camps, draft.title);
-      grStatus('Configuration appliquée dans Grist');
+      grStatus(newParams.length
+        ? newParams.length+' paramètre(s) ajouté(s) : colonnes créées dans la table'
+        : 'Configuration appliquée dans Grist');
     }catch(e2){
       camps = Object.assign({}, draft.camps); title = draft.title;
       grStatus('Colonnes et camps mis à jour, mais la table Config n\'a pas pu être écrite : '+errText(e2), true);
