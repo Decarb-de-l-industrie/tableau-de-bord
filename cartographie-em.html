@@ -169,7 +169,9 @@
   .cfg-camp .sw.r{background:var(--reforme)} .cfg-camp .sw.i{background:var(--indecis)} .cfg-camp .sw.e{background:var(--ets)}
   .cfg-camp input, .cfg-row input{padding:6px 8px;border:1px solid var(--rule);font-size:13px;font-family:var(--sans);background:#FBFBFC;width:100%}
   .cfg-row{border:1px solid var(--rule);padding:9px;margin-bottom:7px;display:grid;grid-template-columns:1fr auto;gap:8px;align-items:start}
-  .cfg-fields{display:flex;flex-direction:column;gap:6px}
+  .cfg-hide{display:flex;align-items:center;gap:6px;margin-top:5px;font-size:11px;color:var(--muted);cursor:pointer}
+.cfg-hide input{margin:0}
+.cfg-fields{display:flex;flex-direction:column;gap:6px}
   .cfg-meta{font-size:10px;color:var(--ink-3);display:flex;gap:10px;flex-wrap:wrap;align-items:center}
   .cfg-col{background:var(--indecis-bg);padding:1px 5px;border:1px solid var(--rule)}
   .cfg-acts{display:flex;flex-direction:column;gap:4px}
@@ -441,6 +443,7 @@ function deriveParams(rec){
     name: CFG['param.'+col+'.nom'] || col,
     favLabel: CFG['param.'+col+'.fav'] || '',
     defLabel: CFG['param.'+col+'.def'] || '',
+    hidden: /^(1|true|oui|yes)$/i.test(CFG['param.'+col+'.masque'] || ''),
     ordre: Number(CFG['param.'+col+'.ordre'] || 999)
   })).sort((a,b)=> a.ordre - b.ordre || a.name.localeCompare(b.name,'fr'));
 }
@@ -558,6 +561,7 @@ async function writeConfig(paramList, campList, newTitle){
     entries['param.'+p.col+'.nom'] = p.name;
     entries['param.'+p.col+'.fav'] = p.favLabel || '';
     entries['param.'+p.col+'.def'] = p.defLabel || '';
+    entries['param.'+p.col+'.masque'] = p.hidden ? '1' : '';
     entries['param.'+p.col+'.ordre'] = String(i+1);
   });
   const keys = table[keyCol] || [], ids = table.id || [];
@@ -574,6 +578,7 @@ async function writeConfig(paramList, campList, newTitle){
 
 /* ---------- Rendu ---------- */
 const board = document.getElementById('board');
+const visibleParams = () => params.filter(p=>!p.hidden);
 const inCamp = id => data.order.filter(c=>data.countries[c].camp===id).sort((a,b)=>data.countries[b].w-data.countries[a].w);
 const pctOf = codes => codes.reduce((s,c)=>s+data.countries[c].w,0)/TOTAL*100;
 const isQM = codes => codes.length>=15 && pctOf(codes)>=65;
@@ -585,7 +590,7 @@ function renderChrome(){
     'Jalons <b style="color:var(--ets)">verts</b> : lus depuis la droite, camp « '+esc(camps.ets)+' ». ' +
     'Minorité de blocage : 4 États membres et plus de 35 %. Majorité qualifiée : 15 États membres et 65 %.';
   const pf = document.getElementById('pFilter'); const keep = pf.value;
-  pf.innerHTML = '<option value="">Tous les paramètres</option>' + params.map(p=>'<option value="'+p.id+'">'+esc(p.name)+'</option>').join('');
+  pf.innerHTML = '<option value="">Tous les paramètres</option>' + visibleParams().map(p=>'<option value="'+p.id+'">'+esc(p.name)+'</option>').join('');
   if(params.some(p=>p.id===keep)) pf.value = keep;
 }
 
@@ -617,7 +622,7 @@ let compact = false;
 function render(){
   const fp = document.getElementById('pFilter').value;
   document.getElementById('pFilter').classList.toggle('on', !!fp);
-  const p = (!compact && fp) ? params.find(x=>x.id===fp) : null;
+  const p = (!compact && fp) ? visibleParams().find(x=>x.id===fp) : null;
   document.body.classList.toggle('view-stance', !!p);
   const banner = document.getElementById('stanceBanner');
   if(p){
@@ -748,7 +753,7 @@ function cardEl(code, param){
       '<span class="camp-badge camp-'+d.camp+'">'+esc(camps[d.camp])+'</span>'+
       '<span class="pop">'+d.w.toFixed(2)+' %</span></div>'+detail;
   } else {
-    const tags = params.filter(p=>d.pos[p.id]&&d.pos[p.id].stance).map(p=>{
+    const tags = visibleParams().filter(p=>d.pos[p.id]&&d.pos[p.id].stance).map(p=>{
       const v=d.pos[p.id]; const label=(v.label||'').trim()||tagText(p,v.stance);
       const s=(v.source||'').trim()?'<span class="src">✓</span>':'';
       return '<span class="tag '+v.stance+'">'+esc(label)+s+'</span>';
@@ -827,7 +832,7 @@ function openCard(code){
     const v=d.pos[p.id]||{};
     return '<div class="param '+(v.stance?'active':'')+'" data-p="'+p.id+'">'+
       '<div class="param-top"><span class="param-name">'+esc(p.name)+'</span><div class="stance">'+
-        STANCES.map(s=>'<label><input type="radio" name="st-'+p.id+'" value="'+s.id+'" '+(v.stance===s.id?'checked':'')+'>'+s.label+'</label>').join('')+
+        stanceCols(p).map(s=>'<label><input type="radio" name="st-'+p.id+'" value="'+s.id+'" '+(v.stance===s.id?'checked':'')+'>'+esc(s.label)+'</label>').join('')+
         '<label><input type="radio" name="st-'+p.id+'" value="" '+(!v.stance?'checked':'')+'>—</label></div></div>'+
       '<div class="param-detail">'+
         '<input class="p-label" placeholder="Nom du tag (défaut : '+esc(tagText(p, v.stance||'fav'))+')" value="'+esc(v.label||'')+'">'+
@@ -879,7 +884,7 @@ function cfgRender(){
   document.getElementById('cfgTitle').value = draft.title;
   document.getElementById('cfgIntro').innerHTML =
     'Les modifications sont écrites dans le document Grist : renommer met à jour la table <b>Config</b>, '
-    + 'ajouter ou supprimer un paramètre crée ou retire les colonnes correspondantes. '
+    + 'ajouter ou supprimer un paramètre crée ou retire les colonnes correspondantes ; cocher « Cacher ce paramètre et ses tags » le retire de la vue pays sans supprimer ses données. '
     + 'Table cible : <b>' + esc(TABLE || '—') + '</b>.';
   document.getElementById('cfgCamps').innerHTML = CAMP_ORDER.map((id,i)=>
     '<div class="cfg-camp"><span class="sw '+['r','i','e'][i]+'">'+['CAMP 1','CENTRE','CAMP 2'][i]+'</span>'+
@@ -888,6 +893,7 @@ function cfgRender(){
     '<div class="cfg-row" data-i="'+i+'">'+
       '<div class="cfg-fields">'+
         '<input class="c-name" value="'+esc(p.name)+'" placeholder="Nom du paramètre">'+
+        '<label class="cfg-hide"><input type="checkbox" class="c-hidden" '+(p.hidden?'checked':'')+'> Cacher ce paramètre et ses tags</label>'+
         '<div class="cfg-poles">'+
           '<input class="c-fav" value="'+esc(p.favLabel||'')+'" placeholder="Position « Camp 1 » (défaut : Favorable)">'+
           '<input class="c-def" value="'+esc(p.defLabel||'')+'" placeholder="Position « Camp 2 » (défaut : Défavorable)">'+
@@ -915,6 +921,7 @@ function cfgCollect(){
     const p = draft.params[+row.dataset.i];
     const n = row.querySelector('.c-name').value.trim();
     if(n) p.name = n;
+    p.hidden = row.querySelector('.c-hidden').checked;
     p.favLabel = row.querySelector('.c-fav').value.trim();
     p.defLabel = row.querySelector('.c-def').value.trim();
   });
@@ -949,7 +956,7 @@ document.getElementById('cfgAdd').addEventListener('click', ()=>{
   const taken = draft.params.map(p=>p.col);
   const name = 'Nouveau paramètre ' + (draft.params.length+1);
   const col = makeCol(name, taken);
-  draft.params.push({id:col, col:col, name:name, favLabel:'', defLabel:'',
+  draft.params.push({id:col, col:col, name:name, favLabel:'', defLabel:'', hidden:false,
                      posCol:col+'_Pos', srcCol:col+'_Src', tagCol:col+'_Tag', isNew:true});
   cfgRender();
 });
