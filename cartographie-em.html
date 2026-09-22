@@ -167,6 +167,8 @@
   .cfg-meta{font-size:10px;color:var(--ink-3);display:flex;gap:10px;flex-wrap:wrap;align-items:center}
   .cfg-col{background:var(--indecis-bg);padding:1px 5px;border:1px solid var(--rule)}
   .cfg-acts{display:flex;flex-direction:column;gap:4px}
+  .cfg-poles{display:flex;gap:6px}
+  .cfg-poles input{flex:1;min-width:0}
   .cfg-note{font-size:11.5px;color:var(--ink-2);background:var(--bf-bg);border-left:4px solid var(--bf);border-top:1px solid var(--rule);border-right:1px solid var(--rule);border-bottom:1px solid var(--rule);padding:8px 10px;line-height:1.5;margin-bottom:14px}
   #schema{width:100%;font-size:10.5px;background:#FBFBFC;border:1px solid var(--rule);padding:8px;font-family:ui-monospace,'Marianne',monospace;white-space:pre;overflow:auto}
 
@@ -249,7 +251,7 @@
      · préfixe  : Position_Plafond / Source_Plafond / Tag_Plafond  (import Excel)
    La table « Config » (Cle / Valeur) porte les intitulés lisibles :
      titre · camp_reforme · camp_indecis · camp_ets
-     param.<Col>.nom · param.<Col>.phrase · param.<Col>.ordre
+     param.<Col>.nom · param.<Col>.fav · param.<Col>.def · param.<Col>.ordre
    Le bouton « Configurer » écrit ces réglages ET modifie les colonnes.
    ========================================================================= */
 
@@ -285,10 +287,9 @@ const norm = s => String(s==null?'':s).trim().toLowerCase().normalize('NFD').rep
 const grStatus = (m, err) => { const el=document.getElementById('grStatus'); el.textContent=m||''; el.className='file-state'+(err?' warn':''); };
 
 function tagText(p, st){
-  const verb = st==='fav' ? 'Favorable' : st==='def' ? 'Défavorable' : 'Position ambiguë';
-  if(p.phrase && p.phrase.trim())
-    return st==='amb' ? 'Position ambiguë sur ' + p.phrase.replace(/^(à |au |aux |a )/,'') : verb + ' ' + p.phrase;
-  return st==='amb' ? 'Position ambiguë — ' + p.name : verb + ' — ' + p.name;
+  if(st==='fav') return (p.favLabel||'').trim() || 'Favorable — ' + p.name;
+  if(st==='def') return (p.defLabel||'').trim() || 'Défavorable — ' + p.name;
+  return 'Position ambiguë — ' + p.name;
 }
 
 function makeCol(name, taken){
@@ -431,7 +432,8 @@ function deriveParams(rec){
     srcCol: found[col].srcCol || null,
     tagCol: found[col].tagCol || null,
     name: CFG['param.'+col+'.nom'] || col,
-    phrase: CFG['param.'+col+'.phrase'] || '',
+    favLabel: CFG['param.'+col+'.fav'] || '',
+    defLabel: CFG['param.'+col+'.def'] || '',
     ordre: Number(CFG['param.'+col+'.ordre'] || 999)
   })).sort((a,b)=> a.ordre - b.ordre || a.name.localeCompare(b.name,'fr'));
 }
@@ -547,7 +549,8 @@ async function writeConfig(paramList, campList, newTitle){
   CAMP_ORDER.forEach(id=>{ entries['camp_'+id] = campList[id]; });
   paramList.forEach((p,i)=>{
     entries['param.'+p.col+'.nom'] = p.name;
-    entries['param.'+p.col+'.phrase'] = p.phrase || '';
+    entries['param.'+p.col+'.fav'] = p.favLabel || '';
+    entries['param.'+p.col+'.def'] = p.defLabel || '';
     entries['param.'+p.col+'.ordre'] = String(i+1);
   });
   const keys = table[keyCol] || [], ids = table.id || [];
@@ -581,17 +584,25 @@ function renderChrome(){
 
 const STANCE_COLS = [
   {id:'fav', label:'Favorable'},
-  {id:'amb', label:'Indécis ou ambigu'},
+  {id:'amb', label:'Indécis, ambigu ou non renseigné'},
   {id:'def', label:'Défavorable'}
 ];
+// Libellés des colonnes de position, propres au paramètre (inversables)
+function stanceCols(p){
+  return [
+    {id:'fav', label:(p.favLabel||'').trim() || 'Favorable'},
+    {id:'amb', label:'Indécis, ambigu ou non renseigné'},
+    {id:'def', label:(p.defLabel||'').trim() || 'Défavorable'}
+  ];
+}
 
-/* Colonne d'un pays sur un paramètre : position explicite si elle existe, sinon
-   colonne centrale pour les indécis sans position, rien pour un camp tranché. */
+/* Colonne d'un pays sur un paramètre. Position explicite si elle existe, sinon
+   colonne centrale — quel que soit le camp. Ainsi les trois colonnes réunissent
+   TOUS les États et totalisent 100 %. */
 function stanceOf(code, p){
   const v = data.countries[code].pos[p.id];
   if(v && v.stance) return v.stance;
-  if(data.countries[code].camp === 'indecis') return 'amb';
-  return null;
+  return 'amb';
 }
 
 function render(){
@@ -642,7 +653,7 @@ function renderByCamp(){
 function renderByStance(p){
   const q = document.getElementById('search').value.trim().toLowerCase();
   board.innerHTML = '';
-  STANCE_COLS.forEach(sc=>{
+  stanceCols(p).forEach(sc=>{
     const codes = data.order
       .filter(c=>stanceOf(c, p) === sc.id)
       .sort((a,b)=>data.countries[b].w-data.countries[a].w);
@@ -677,8 +688,8 @@ function cardEl(code, param){
       const label=(v.label||'').trim()||tagText(param, v.stance);
       const src=(v.source||'').trim()?'<span class="src">✓</span>':'';
       detail = '<div class="tags"><span class="tag '+v.stance+'">'+esc(label)+src+'</span></div>';
-    } else if(d.camp==='indecis'){
-      detail = '<div class="nopos">Indécis, position non renseignée</div>';
+    } else {
+      detail = '<div class="nopos">'+(d.camp==='indecis'?'Indécis, position non renseignée':'Position non renseignée')+'</div>';
     }
     body = '<div class="card-top"><span class="flag">'+(FLAGS[code]||'')+'</span>'+
       '<span class="cname">'+esc(d.name)+'</span>'+
@@ -819,11 +830,11 @@ function cfgRender(){
     '<div class="cfg-row" data-i="'+i+'">'+
       '<div class="cfg-fields">'+
         '<input class="c-name" value="'+esc(p.name)+'" placeholder="Nom du paramètre">'+
-        '<input class="c-phrase" value="'+esc(p.phrase||'')+'" placeholder="Complément de phrase pour les tags">'+
-        '<div class="cfg-meta"><span class="cfg-col">'+esc(p.posCol||p.col+'_Pos')+'</span>'+
-          '<span class="cfg-col">'+esc(p.srcCol||p.col+'_Src')+'</span>'+
-          '<span class="cfg-col">'+esc(p.tagCol||p.col+'_Tag')+'</span>'+
-          (p.isNew?'<b style="color:#B34000">à créer</b>':'')+'</div>'+
+        '<div class="cfg-poles">'+
+          '<input class="c-fav" value="'+esc(p.favLabel||'')+'" placeholder="Position « favorable » (défaut : Favorable)">'+
+          '<input class="c-def" value="'+esc(p.defLabel||'')+'" placeholder="Position « défavorable » (défaut : Défavorable)">'+
+        '</div>'+
+        (p.isNew?'<div class="cfg-meta"><b style="color:#B34000">nouveau paramètre</b></div>':'')+
       '</div>'+
       '<div class="cfg-acts">'+
         '<button class="btn ghost mini" data-act="up" '+(i===0?'disabled':'')+'>↑</button>'+
@@ -846,7 +857,8 @@ function cfgCollect(){
     const p = draft.params[+row.dataset.i];
     const n = row.querySelector('.c-name').value.trim();
     if(n) p.name = n;
-    p.phrase = row.querySelector('.c-phrase').value.trim();
+    p.favLabel = row.querySelector('.c-fav').value.trim();
+    p.defLabel = row.querySelector('.c-def').value.trim();
   });
 }
 
@@ -879,7 +891,7 @@ document.getElementById('cfgAdd').addEventListener('click', ()=>{
   const taken = draft.params.map(p=>p.col);
   const name = 'Nouveau paramètre ' + (draft.params.length+1);
   const col = makeCol(name, taken);
-  draft.params.push({id:col, col:col, name:name, phrase:'',
+  draft.params.push({id:col, col:col, name:name, favLabel:'', defLabel:'',
                      posCol:col+'_Pos', srcCol:col+'_Src', tagCol:col+'_Tag', isNew:true});
   cfgRender();
 });
