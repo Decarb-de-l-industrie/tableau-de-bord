@@ -169,8 +169,8 @@
   .cfg-camp .sw.r{background:var(--reforme)} .cfg-camp .sw.i{background:var(--indecis)} .cfg-camp .sw.e{background:var(--ets)}
   .cfg-camp input, .cfg-row input{padding:6px 8px;border:1px solid var(--rule);font-size:13px;font-family:var(--sans);background:#FBFBFC;width:100%}
   .cfg-row{border:1px solid var(--rule);padding:9px;margin-bottom:7px;display:grid;grid-template-columns:1fr auto;gap:8px;align-items:start}
-  .cfg-hide{display:flex;align-items:center;gap:6px;margin-top:5px;font-size:11px;color:var(--muted);cursor:pointer}
-.cfg-hide input{margin:0}
+  .cfg-acts{display:flex;flex-direction:column;align-items:center;gap:4px}
+.cfg-hide-btn{font-size:13px;line-height:1;padding:3px 7px;min-width:28px}
 .cfg-fields{display:flex;flex-direction:column;gap:6px}
   .cfg-meta{font-size:10px;color:var(--ink-3);display:flex;gap:10px;flex-wrap:wrap;align-items:center}
   .cfg-col{background:var(--indecis-bg);padding:1px 5px;border:1px solid var(--rule)}
@@ -190,7 +190,9 @@
 <body>
 <div class="wrap">
 <header class="masthead">
+  <div class="eyebrow">Cartographie des positions · widget Grist</div>
   <h1 id="title">Cartographie des positions</h1>
+  <p class="sub">Données synchronisées avec la table Grist. Glissez une vignette pour changer de camp, cliquez pour éditer positions et sources.</p>
   <div class="council" id="councilPanel">
     <div class="c-title">Arithmétique du Conseil — poids en population</div>
     <div class="thresh top"><span style="left:35%">35 % · minorité de blocage</span><span style="left:65%">65 % · majorité qualifiée</span></div>
@@ -594,14 +596,14 @@ function renderChrome(){
 
 const STANCE_COLS = [
   {id:'fav', label:'Favorable'},
-  {id:'amb', label:'Indécis, ambigu ou non renseigné'},
+  {id:'amb', label:'Indécis'},
   {id:'def', label:'Défavorable'}
 ];
 // Libellés des colonnes de position, propres au paramètre (inversables)
 function stanceCols(p){
   return [
     {id:'fav', label:(p.favLabel||'').trim() || 'Favorable'},
-    {id:'amb', label:'Indécis, ambigu ou non renseigné'},
+    {id:'amb', label:'Indécis'},
     {id:'def', label:(p.defLabel||'').trim() || 'Défavorable'}
   ];
 }
@@ -627,7 +629,7 @@ function render(){
     banner.style.display='';
     banner.innerHTML = 'Vue par position sur : <b>'+esc(p.name)+'</b>. '+
       'Les colonnes traduisent la position des États membres sur ce paramètre ; le camp de chaque pays est rappelé sur sa vignette. '+
-      'La colonne centrale réunit les positions ambiguës et les États encore indécis. Glissez pour fixer une position.';
+      'La colonne centrale réunit les États indécis. Glissez pour fixer une position.';
   } else banner.style.display='none';
   if(compact) renderCompact();
   else if(p) renderByStance(p);
@@ -891,7 +893,6 @@ function cfgRender(){
     '<div class="cfg-row" data-i="'+i+'">'+
       '<div class="cfg-fields">'+
         '<input class="c-name" value="'+esc(p.name)+'" placeholder="Nom du paramètre">'+
-        '<label class="cfg-hide"><input type="checkbox" class="c-hidden" '+(p.hidden?'checked':'')+'> Cacher ce paramètre et ses tags</label>'+
         '<div class="cfg-poles">'+
           '<input class="c-fav" value="'+esc(p.favLabel||'')+'" placeholder="Position « Camp 1 » (défaut : Favorable)">'+
           '<input class="c-def" value="'+esc(p.defLabel||'')+'" placeholder="Position « Camp 2 » (défaut : Défavorable)">'+
@@ -901,7 +902,10 @@ function cfgRender(){
       '<div class="cfg-acts">'+
         '<button class="btn ghost mini" data-act="up" '+(i===0?'disabled':'')+'>↑</button>'+
         '<button class="btn ghost mini" data-act="down" '+(i===draft.params.length-1?'disabled':'')+'>↓</button>'+
-        '<button class="btn danger mini" data-act="del">✕</button>'+
+        '<button class="btn danger mini" data-act="del" title="Supprimer ce paramètre" aria-label="Supprimer ce paramètre">✕</button>'+
+        '<button class="btn ghost mini cfg-hide-btn" data-act="hide" title="'+(p.hidden?'Afficher ce paramètre':'Masquer ce paramètre')+'" aria-label="'+(p.hidden?'Afficher ce paramètre':'Masquer ce paramètre')+'">'+
+          (p.hidden ? '◉' : '◌')+
+        '</button>'+
       '</div></div>').join('');
   const added = draft.params.filter(p=>p.isNew).length;
   const removed = draft.removed.length;
@@ -919,7 +923,6 @@ function cfgCollect(){
     const p = draft.params[+row.dataset.i];
     const n = row.querySelector('.c-name').value.trim();
     if(n) p.name = n;
-    p.hidden = row.querySelector('.c-hidden').checked;
     p.favLabel = row.querySelector('.c-fav').value.trim();
     p.defLabel = row.querySelector('.c-def').value.trim();
   });
@@ -938,6 +941,11 @@ document.getElementById('cfgParams').addEventListener('click', e=>{
   cfgCollect();
   const i = +btn.closest('.cfg-row').dataset.i;
   const act = btn.dataset.act;
+  if(act==='hide'){
+    draft.params[i].hidden = !draft.params[i].hidden;
+    cfgRender();
+    return;
+  }
   if(act==='up' && i>0){ const t=draft.params[i-1]; draft.params[i-1]=draft.params[i]; draft.params[i]=t; }
   if(act==='down' && i<draft.params.length-1){ const t=draft.params[i+1]; draft.params[i+1]=draft.params[i]; draft.params[i]=t; }
   if(act==='del'){
