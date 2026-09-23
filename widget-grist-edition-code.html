@@ -1947,8 +1947,8 @@
           // const em_tot_AvecDecarb = sumList(ges2025AvecDecarb.map((g,i) => g != -1 ? g : (gesCourantAvecDecarb[i] != -1) ? gesCourantAvecDecarb[i] : 0));
           const em_tot_AvecDecarb = sumList(gesCourantAvecDecarb);
           b3.value = em_tot != 0 ? `${nDecimales(em_tot_AvecDecarb/em_tot*100,0)}` : null;
-          b3.label = "Sites avec des projets de décarbonation identifiés";
-          b3.unit = '% des émissions totales';
+          b3.label = "Emissions avec des projets de décarbonation identifiés";
+          b3.unit = '% du total';
 
           const dataAbattement = resultTrajCO2[2];
           b4.value = nDecimales(((dataAbattement[0]-dataAbattement[dataAbattement.length-1])/dataAbattement[0])*100,0);
@@ -3189,7 +3189,7 @@
               </div>
             </td>
             <td class="pct-td">
-              <div class="pct-cell">${nDecimales(pctAbattement*(-1),0)}%</div>
+              <div class="pct-cell">${nDecimales(pctAbattement === 0 ? 0 : pctAbattement*(-1),0)}%</div>
             </td>
             <td>
               ${renderPieCellSVG(segments.nonMESnonAide,segments.nonMESAide,segments.MES)}
@@ -3229,7 +3229,9 @@
         }
 
         function getPieCondition(nMESnAide, nMESAide, MES) {
-          const pctAssure = (nMESAide + MES) / (nMESnAide + nMESAide + MES);
+          const denom = nMESnAide + nMESAide + MES;
+          if (denom <= 0) return 0;                         // aucun projet : sécurisation nulle (cercle vide)
+          const pctAssure = (nMESAide + MES) / denom;
           if (pctAssure < 0.2) return 0;
           else if (pctAssure < 0.4) return 1;
           else if (pctAssure < 0.6) return 2;
@@ -3943,6 +3945,25 @@
           for (let j = 0 ; j < sitesEtudies.length ; j++){
             resultats[j].emissionsTotales += D_sites_gesMin[`${sitesEtudies[j]}`];
             resultats[j].situation = D_sites_situation[`${sitesEtudies[j]}`] || '';
+          }
+
+          // Ajout des sites SANS projet de décarbonation : ils doivent apparaître
+          // avec leurs émissions résiduelles, même en l'absence de tout projet.
+          for (let i = 0 ; i < records_sites.name_site.length ; i++){
+            const nom = records_sites.name_site[i];
+            if (typeof nom != 'string' || nom == '' || nom.includes('#')) continue;
+            if (sitesEtudies.includes(nom)) continue;                       // site déjà présent (il a des projets)
+            const ges = records_sites[`ges_${anneeMin}`][i];
+            if (!Number.isFinite(ges) || ges <= 0) continue;                // pas d'émissions exploitables
+            sitesEtudies.push(nom);
+            resultats.push({
+              secteur: records_sites.Filiere ? (records_sites.Filiere[i] || '') : '',
+              site: nom,
+              perimetre: records_sites.Perimetre ? records_sites.Perimetre[i] : '',
+              situation: records_sites.Situation_du_site[i] || '',
+              emissionsTotales: ges,
+              emissionsAbattues: { nonMESnonAide: 0, nonMESAide: 0, MES: 0 }
+            });
           }
           return resultats;
         }
