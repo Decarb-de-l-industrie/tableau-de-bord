@@ -63,10 +63,22 @@
   .hint{font-size:11.5px;color:var(--ink-3);padding:8px 12px;border-top:1px solid var(--rule);line-height:1.5}
 
   .toolbar{margin:14px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-  input[type=search]{flex:1 1 220px;min-width:160px;padding:8px 12px;border:1px solid var(--rule);background:var(--paper);color:var(--ink);font-size:13px;font-family:inherit;border-radius:var(--radius-sm)}
+  input[type=search]{flex:1 1 140px;min-width:120px;padding:8px 12px;border:1px solid var(--rule);background:var(--paper);color:var(--ink);font-size:13px;font-family:inherit;border-radius:var(--radius-sm)}
   #btnCompact[aria-pressed=true]{background:var(--ink);color:#fff;border-color:var(--ink);font-weight:600}
-  #pFilter{padding:8px 12px;border:1px solid var(--rule);background:var(--paper);color:var(--ink);font-size:13px;font-family:inherit;border-radius:var(--radius-sm)}
-  #pFilter.on{background:var(--ink);color:#fff;border-color:var(--ink);font-weight:600}
+  .pf-wrap{position:relative;flex:1 1 320px;min-width:260px}
+  .pf-btn{width:100%;display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--rule);background:var(--paper);color:var(--ink);font:inherit;font-size:13px;border-radius:var(--radius-sm);cursor:pointer;text-align:left}
+  .pf-btn:hover{border-color:var(--ink)}
+  .pf-wrap.on .pf-btn{background:var(--ink);color:#fff;border-color:var(--ink);font-weight:600}
+  .pf-label{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pf-caret{font-size:10px;opacity:.7}
+  .pf-menu{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:60;background:var(--paper);border:1px solid var(--rule);border-radius:var(--radius-sm);box-shadow:var(--shadow-lg);max-height:360px;overflow:auto;padding:4px}
+  .pf-row{display:flex;align-items:center;gap:14px;padding:7px 10px;border-radius:var(--radius-xs);cursor:pointer;font-size:13px;color:var(--ink)}
+  .pf-row:hover{background:var(--rule-2)}
+  .pf-row.sel{background:var(--bf-bg);font-weight:600}
+  .pf-row .pf-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pf-pct{font-family:'JetBrains Mono','Marianne',monospace;font-variant-numeric:tabular-nums;font-size:11px;font-weight:700;white-space:nowrap}
+  .pf-pct .r{color:var(--reforme)} .pf-pct .i{color:var(--indecis)} .pf-pct .e{color:var(--ets)}
+  .pf-pct .sep{color:var(--ink-3);font-weight:400;margin:0 3px}
   :focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 
   .board{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-items:start}
@@ -210,7 +222,10 @@
 
 <div class="toolbar">
   <input type="search" id="search" placeholder="Filtrer un pays…" aria-label="Filtrer un État membre">
-  <select id="pFilter" aria-label="Filtrer par paramètre"><option value="">Tous les paramètres</option></select>
+  <div class="pf-wrap" id="pFilterWrap">
+    <button type="button" class="pf-btn" id="pfBtn" aria-haspopup="listbox" aria-expanded="false"><span class="pf-label" id="pfLabel">Tous les paramètres</span><span class="pf-caret">▾</span></button>
+    <div class="pf-menu" id="pfMenu" role="listbox" hidden></div>
+  </div>
   <button class="btn ghost" id="btnCompact" aria-pressed="false">Vue compacte</button>
   <button class="btn ghost" id="btnCfg">Configurer</button>
   <span class="file-state" id="grStatus">Connexion à Grist…</span>
@@ -593,10 +608,41 @@ function renderChrome(){
     'Jalons <b style="color:var(--reforme)">bleus</b> : lus depuis la gauche, camp « '+esc(camps.reforme)+' ». ' +
     'Jalons <b style="color:var(--ets)">verts</b> : lus depuis la droite, camp « '+esc(camps.ets)+' ». ' +
     'Minorité de blocage : 4 États membres et plus de 35 %. Majorité qualifiée : 15 États membres et 65 %.';
-  const pf = document.getElementById('pFilter'); const keep = pf.value;
-  pf.innerHTML = '<option value="">Tous les paramètres</option>' + visibleParams().map(p=>'<option value="'+p.id+'">'+esc(p.name)+'</option>').join('');
-  if(params.some(p=>p.id===keep)) pf.value = keep;
+  const vis = visibleParams();
+  if(pFilterValue && !vis.some(p=>p.id===pFilterValue)) pFilterValue = '';
+  buildPfMenu();
+  updatePfLabel();
 }
+
+/* ---------- Filtre par paramètre (menu personnalisé) ---------- */
+let pFilterValue = '';
+function pctSplit(p){
+  const g = {fav:[], amb:[], def:[]};
+  data.order.forEach(c=>{ (g[stanceOf(c, p)] || g.amb).push(c); });
+  return {r: Math.round(pctOf(g.fav)), i: Math.round(pctOf(g.amb)), e: Math.round(pctOf(g.def))};
+}
+function pctHtml(p){
+  const s = pctSplit(p);
+  return '<span class="pf-pct"><span class="r">'+s.r+'%</span><span class="sep">|</span>'+
+         '<span class="i">'+s.i+'%</span><span class="sep">|</span><span class="e">'+s.e+'%</span></span>';
+}
+function updatePfLabel(){
+  const p = pFilterValue ? params.find(x=>x.id===pFilterValue) : null;
+  document.getElementById('pfLabel').textContent = p ? p.name : 'Tous les paramètres';
+  document.getElementById('pFilterWrap').classList.toggle('on', !!pFilterValue);
+}
+function buildPfMenu(){
+  const menu = document.getElementById('pfMenu');
+  let html = '<div class="pf-row'+(pFilterValue===''?' sel':'')+'" data-v=""><span class="pf-name">Tous les paramètres</span></div>';
+  visibleParams().forEach(p=>{
+    html += '<div class="pf-row'+(pFilterValue===p.id?' sel':'')+'" data-v="'+p.id+'">'+
+      '<span class="pf-name">'+esc(p.name)+'</span>'+pctHtml(p)+'</div>';
+  });
+  menu.innerHTML = html;
+}
+function setPf(val){ pFilterValue = val; closePf(); updatePfLabel(); render(); }
+function openPf(){ buildPfMenu(); document.getElementById('pfMenu').hidden=false; document.getElementById('pfBtn').setAttribute('aria-expanded','true'); }
+function closePf(){ document.getElementById('pfMenu').hidden=true; document.getElementById('pfBtn').setAttribute('aria-expanded','false'); }
 
 const STANCE_COLS = [
   {id:'fav', label:'Favorable'},
@@ -624,8 +670,7 @@ function stanceOf(code, p){
 let compact = false;
 
 function render(){
-  const fp = document.getElementById('pFilter').value;
-  document.getElementById('pFilter').classList.toggle('on', !!fp);
+  const fp = pFilterValue;
   const p = fp ? visibleParams().find(x=>x.id===fp) : null;
   document.body.classList.toggle('view-stance', !!p);
   const banner = document.getElementById('stanceBanner');
@@ -644,13 +689,12 @@ const matchQ = (code,q) => !q || data.countries[code].name.toLowerCase().include
 
 /* Mini-vignette pour la vue compacte : drapeau, nom, poids, et le badge de camp
    uniquement en vue par position (où la colonne est la position, pas le camp). */
-function miniCardEl(code, param){
+function miniCardEl(code){
   const d = data.countries[code];
   const btn = document.createElement('button');
   btn.className='card mini'; btn.draggable=true; btn.type='button';
-  const badge = param ? '<span class="camp-badge camp-'+d.camp+'">'+esc(camps[d.camp])+'</span>' : '';
   btn.innerHTML='<div class="card-top"><span class="flag">'+(FLAGS[code]||'')+'</span>'+
-    '<span class="cname">'+esc(d.name)+'</span>'+badge+'<span class="pop">'+d.w.toFixed(2)+' %</span></div>';
+    '<span class="cname">'+esc(d.name)+'</span><span class="pop">'+d.w.toFixed(2)+' %</span></div>';
   btn.addEventListener('click', ()=>openCard(code));
   btn.addEventListener('dragstart', e=>{e.dataTransfer.setData('text/plain',code);btn.classList.add('dragging');});
   btn.addEventListener('dragend', ()=>btn.classList.remove('dragging'));
@@ -845,7 +889,16 @@ document.getElementById('mSave').addEventListener('click', async ()=>{
 });
 document.getElementById('mClose').addEventListener('click', ()=>modal.close());
 document.getElementById('search').addEventListener('input', render);
-document.getElementById('pFilter').addEventListener('change', render);
+document.getElementById('pfBtn').addEventListener('click', (e)=>{
+  e.stopPropagation();
+  if(document.getElementById('pfMenu').hidden) openPf(); else closePf();
+});
+document.getElementById('pfMenu').addEventListener('click', (e)=>{
+  const row = e.target.closest('.pf-row'); if(!row) return;
+  setPf(row.dataset.v);
+});
+document.addEventListener('click', (e)=>{ if(!e.target.closest('#pFilterWrap')) closePf(); });
+document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closePf(); });
 document.getElementById('btnCompact').addEventListener('click', ()=>{
   compact = !compact;
   document.getElementById('btnCompact').setAttribute('aria-pressed', compact ? 'true' : 'false');
