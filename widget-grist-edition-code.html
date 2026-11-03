@@ -4637,11 +4637,11 @@
 
 
         function choixColUniques(record, colName) {
-          let list = record[colName];
-          let s_list = new Set(list);
-          let unique_list = [...s_list];
-          return unique_list.sort();
-        }
+  const list = (record[colName] || []).filter(v =>
+    v !== '' && v != null && v !== 'C' && !Array.isArray(v)
+  );
+  return [...new Set(list)].sort();
+}
 
         function clearFilters() {
           document.querySelectorAll('select').forEach(el => {
